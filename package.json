@@ -1,0 +1,38 @@
+{
+  "name": "send21-split-the-bill",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Split a bill with friends. One send21 pay link per person, a live board that fills up with ✅.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/src/index.js",
+    "webhook:register": "tsx scripts/register-webhook.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.19.0",
+    "@types/qrcode": "^1.5.5",
+    "eslint": "^9.39.0",
+    "globals": "^16.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.0",
+    "vitest": "^3.2.4"
+  }
+}
