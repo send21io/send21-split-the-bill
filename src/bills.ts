@@ -269,6 +269,9 @@ export function applyEvent(d: StoreData, body: { event?: unknown; data?: unknown
   }
 }
 
+/** Only an open, unpaid share still shows its pay link: never one that expired, was declined or is in review. */
+export const payable = (s: { status: string; payUrl?: string | null }): boolean => Boolean(s.payUrl) && (s.status === "waiting" || s.status === "seen");
+
 /** What the browser gets: no receiving addresses beyond what the pay page shows anyway, no internals. */
 export function publicBill(bill: Bill) {
   return {
@@ -284,7 +287,7 @@ export function publicBill(bill: Bill) {
       emoji: s.emoji,
       amount: s.amount,
       status: s.status,
-      payUrl: s.payUrl,
+      payUrl: payable(s) ? s.payUrl : null,
       expiresAt: s.expiresAt,
       paid: s.paid ? { currency: s.paid.currency, network: s.paid.network, amount: s.paid.amount, differentAmount: s.paid.differentAmount } : null,
     })),

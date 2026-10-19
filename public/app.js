@@ -68,6 +68,10 @@ function createView() {
     people: [{ name: "", emoji: AVATARS[0] }, { name: "", emoji: AVATARS[1] }, { name: "", emoji: AVATARS[2] }],
     coins: stored("split.coins", [{ coin: "usdc-sol", address: "" }]),
   };
+  // 🧪 Mock mode: fill in sample addresses so the first run just works.
+  const demo = meta.demoAddresses;
+  const demoFor = (id) => demo?.[meta.coins.find((m) => m.id === id)?.kind] ?? "";
+  if (demo) for (const c of state.coins) if (!c.address) c.address = demoFor(c.coin);
   const preview = h("p", { class: "each" });
   const peopleBox = h("div", { class: "people" });
   const coinBox = h("div", { class: "coins" });
@@ -76,7 +80,7 @@ function createView() {
     const d = decimals(state.currency);
     const total = Math.round(Number(String(state.total).replace(",", ".")) * 10 ** d);
     const count = state.people.length + (state.includeMe ? 1 : 0);
-    if (!(total > 0)) return (preview.textContent = `👥 ${count}`);
+    if (!(total > 0)) return (preview.textContent = `👥 ${count} people · type the total 👆`);
     const shares = splitMinor(total, count).map((m) => m / 10 ** d);
     const lo = shares[shares.length - 1];
     const hi = shares[0];
@@ -99,12 +103,12 @@ function createView() {
     coinBox.replaceChildren(
       ...state.coins.map((c, i) =>
         h("div", { class: "row coin" },
-          h("select", { "aria-label": "coin", onchange: (e) => (c.coin = e.target.value) }, meta.coins.map((m) => h("option", { value: m.id, selected: m.id === c.coin }, `${m.emoji} ${m.label}`))),
+          h("select", { "aria-label": "coin", onchange: (e) => { const was = demoFor(c.coin); c.coin = e.target.value; if (demo && (!c.address || c.address === was)) { c.address = demoFor(c.coin); drawCoins(); } } }, meta.coins.map((m) => h("option", { value: m.id, selected: m.id === c.coin }, `${m.emoji} ${m.label}`))),
           h("input", { value: c.address, placeholder: "your address", autocomplete: "off", spellcheck: "false", "aria-label": "your receiving address", oninput: (e) => (c.address = e.target.value.trim()) }),
           h("button", { type: "button", class: "x", "aria-label": "remove", disabled: state.coins.length === 1, onclick: () => { state.coins.splice(i, 1); drawCoins(); } }, "✕"),
         ),
       ),
-      h("button", { type: "button", class: "add", disabled: state.coins.length >= meta.limits.maxCoins, onclick: () => { state.coins.push({ coin: meta.coins[0].id, address: "" }); drawCoins(); } }, "➕ coin"),
+      h("button", { type: "button", class: "add", disabled: state.coins.length >= meta.limits.maxCoins, onclick: () => { state.coins.push({ coin: meta.coins[0].id, address: demoFor(meta.coins[0].id) }); drawCoins(); } }, "➕ coin"),
     );
   }
 
@@ -137,11 +141,11 @@ function createView() {
     ),
     h("label", { class: "toggle" }, h("input", { type: "checkbox", checked: state.includeMe, onchange: (e) => { state.includeMe = e.target.checked; updatePreview(); } }), " 🙋 I'm in too"),
     preview,
-    h("h2", {}, "👥"),
+    h("h2", {}, "👥 who's in"),
     peopleBox,
     h("h2", {}, "🪙 paid to you"),
     coinBox,
-    h("p", { class: "hint" }, "🔒 your own address · never a seed phrase"),
+    h("p", { class: "hint" }, demo ? "🧪 mock mode: sample addresses filled in · no real money" : "🔒 your own address · never a seed phrase"),
     go,
   );
   drawPeople();
@@ -167,7 +171,7 @@ function boardView(id, openFirst) {
       h("div", { class: "card head" },
         h("div", { class: "big" }, bill.emoji),
         h("h1", {}, bill.title),
-        h("p", { class: "sum" }, money(bill.total, bill.currency)),
+        h("p", { class: "sum" }, `💰 ${money(got, bill.currency)} of ${money(bill.total, bill.currency)} in`),
         h("div", { class: "bar", role: "progressbar", "aria-valuenow": pct, "aria-valuemin": 0, "aria-valuemax": 100 }, h("span", { class: "fill" })),
         h("p", { class: "count" }, paid.length === friends.length ? "🎉 all paid" : `✅ ${paid.length}/${friends.length}`),
       ),
@@ -200,10 +204,11 @@ function boardView(id, openFirst) {
 
 function shareCard(bill, s, open) {
   const [icon, word] = STATUS[s.status] ?? ["❔", s.status];
-  const isOpen = open.has(s.n) && s.payUrl && !["paid", "me"].includes(s.status);
+  // The server only sends payUrl while the share can still be paid (waiting / seen).
+  const isOpen = open.has(s.n) && Boolean(s.payUrl);
   const name = s.status === "me" ? "you" : s.name || `friend ${s.n}`;
   const el = h("article", { class: `card share st-${s.status}${isOpen ? " open" : ""}` },
-    h("button", { class: "share-head", type: "button", "aria-expanded": String(Boolean(isOpen)), disabled: !s.payUrl || ["paid", "me"].includes(s.status), onclick: (e) => e.target.closest(".board").dispatchEvent(new CustomEvent("toggle-share", { detail: s.n })) },
+    h("button", { class: "share-head", type: "button", "aria-expanded": String(Boolean(isOpen)), disabled: !s.payUrl, onclick: (e) => e.target.closest(".board").dispatchEvent(new CustomEvent("toggle-share", { detail: s.n })) },
       h("span", { class: "who" }, s.emoji),
       h("span", { class: "name" }, name),
       h("span", { class: "amt" }, money(s.amount, bill.currency)),
@@ -236,6 +241,7 @@ async function copy(text, msg) {
 // ---------- router ----------
 async function route() {
   meta ??= await api("/meta");
+  document.getElementById("toast").hidden = true;
   document.getElementById("mode").hidden = meta.mode !== "mock";
   // #/b/<id> is the board; #/b/<id>/<n> opens that person's QR card.
   const m = /^#\/b\/([a-z0-9]{20})(?:\/(\d{1,2}))?$/.exec(location.hash);

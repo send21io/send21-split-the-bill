@@ -14,6 +14,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { background: radial-gradient(900px 360px at 50% -12%, #3a230c 0%, transparent 70%), var(--bg); }
 body { font: 17px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif; min-height: 100dvh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
 main { max-width: 480px; margin: 0 auto; padding: 8px 16px 48px; }
 button, input, select { font: inherit; color: inherit; }
@@ -35,7 +36,8 @@ h2 { font-size: 15px; color: var(--dim); font-weight: 700; margin: 22px 0 8px; }
 .bill-emoji { font-size: 44px; line-height: 1; width: 72px; height: 72px; border-radius: 22px; border: 1px solid var(--line); background: #2e2f36; }
 .title { flex: 1; background: transparent; border: 0; border-bottom: 2px solid var(--line); font-size: 22px; font-weight: 700; padding: 8px 2px; min-width: 0; }
 .total { display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; }
-.amount { flex: 1; min-width: 0; background: transparent; border: 0; font-size: 52px; font-weight: 800; letter-spacing: -.03em; padding: 0; caret-color: var(--orange); }
+.amount { flex: 1; min-width: 0; background: transparent; border: 0; border-radius: 14px; font-size: 52px; font-weight: 800; letter-spacing: -.03em; padding: 0 6px; caret-color: var(--orange); }
+.title:focus-visible, .amount:focus-visible { outline: 0; box-shadow: 0 2px 0 0 var(--orange); border-radius: 0; }
 .amount::placeholder { color: #4a4b53; }
 .cur, .coin select { background: #2e2f36; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; font-weight: 700; }
 .toggle { display: flex; align-items: center; gap: 8px; color: var(--dim); font-weight: 600; margin-top: 4px; }

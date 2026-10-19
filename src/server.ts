@@ -3,7 +3,7 @@ import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type Request, type Response } from "express";
 import QRCode from "qrcode";
-import { applyEvent, buildBill, createLinks, LIMITS, publicBill, type LinkConfig } from "./bills.js";
+import { applyEvent, buildBill, createLinks, LIMITS, payable, publicBill, type LinkConfig } from "./bills.js";
 import { COINS, FIATS, fiatDecimals, formatFiat } from "./currencies.js";
 import { friendlyError, type createMockClient, type Send21Client } from "./send21.js";
 import { Store } from "./store.js";
@@ -122,8 +122,10 @@ export function createApp({ store, send21, secret, links, log = console.log, moc
     res.json({
       mode: send21.mode,
       fiats: FIATS.map((f) => ({ code: f, decimals: fiatDecimals(f) })),
-      coins: COINS.map((c) => ({ id: c.id, emoji: c.emoji, label: c.label })),
+      coins: COINS.map((c) => ({ id: c.id, emoji: c.emoji, label: c.label, kind: c.kind })),
       limits: LIMITS,
+      // Mock mode only: sample addresses so the first run works without a wallet. Never real ones.
+      ...(send21.mode === "mock" ? { demoAddresses: DEMO_ADDRESSES } : {}),
     });
   });
   api.post("/bills", rateLimit(10, 60_000), async (req, res) => {
@@ -148,7 +150,7 @@ export function createApp({ store, send21, secret, links, log = console.log, moc
     const bill = getBill(req, res);
     const share = bill?.shares.find((s) => String(s.n) === req.params.n);
     if (!bill) return;
-    if (!share?.payUrl) {
+    if (!share?.payUrl || !payable(share)) {
       res.status(404).end();
       return;
     }
@@ -190,9 +192,28 @@ export function createApp({ store, send21, secret, links, log = console.log, moc
 
 // ---------- mock mode: a tiny local "pay page" that sends signed deliveries ----------
 
+/** Well-known sample addresses (not ours, nobody's keys): only offered in mock mode. */
+export const DEMO_ADDRESSES: Record<string, string> = {
+  solana: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+  evm: "0x52908400098527886E0F7030069857D2E4169EE7",
+  lightning: "split@wallet.example",
+};
+
+const MOCK_ACTIONS: [string, string, string][] = [
+  ["paid", "✅", "pay"],
+  ["seen", "👀", "start paying"],
+  ["short", "⚠️", "pay 5% short"],
+  ["accept", "👍", "accept the short pay"],
+  ["decline", "↩️", "decline the short pay"],
+  ["expire", "⌛", "let it expire"],
+];
+
+const mockPage = (title: string, body: string) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · mock pay</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/mock.css"></head><body><main class="mock">${body}</main></body></html>`;
+
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function mountMock(app: Express, secret: string, { client, selfUrl }: NonNullable<AppDeps["mock"]>): void {
+function mountMock(app: Express, secret: string, mock: NonNullable<AppDeps["mock"]>): void {
+  const { client } = mock;
   app.get("/mock/pay/:token", (req, res) => {
     const entry = client.requests.get(req.params.token);
     if (!entry) {
@@ -201,10 +222,16 @@ function mountMock(app: Express, secret: string, { client, selfUrl }: NonNullabl
     }
     const t = esc(req.params.token);
     const coins = entry.body.options.map((o, i) => `<option value="${i}">${esc(`${o.currency.toUpperCase()} · ${o.method ?? o.network}`)}</option>`).join("");
-    res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>mock pay</title><link rel="stylesheet" href="/mock.css">
-<main class="mock"><p class="tag">🧪 MOCK · no real money</p><h1>${esc(formatFiat(entry.body.fiatAmount, entry.body.fiatCurrency))}</h1><p>${esc(entry.body.memo)}</p>
-${[["seen", "👀 start paying"], ["paid", "✅ pay"], ["short", "⚠️ pay 5% short"], ["expire", "⌛ expire"]].map(([a, l]) => `<form method="post" action="/mock/pay/${t}/${a}"><select name="coin">${coins}</select><button>${l}</button></form>`).join("")}
-</main>`);
+    const amount = formatFiat(entry.body.fiatAmount, entry.body.fiatCurrency);
+    res.type("html").send(
+      mockPage(
+        amount,
+        `<p class="tag">🧪 mock pay page · no real money</p><h1>${esc(amount)}</h1><p class="memo">${esc(entry.body.memo)}</p>
+<form method="post" action="/mock/pay/${t}/paid" class="card"><label for="coin">🪙 pay with</label><select id="coin" name="coin">${coins}</select>
+<div class="acts">${MOCK_ACTIONS.map(([a, i, l]) => `<button formaction="/mock/pay/${t}/${a}" class="${a === "paid" ? "main" : ""}">${i} ${l}</button>`).join("")}</div></form>
+<p class="hint">Each button sends a signed webhook to this app, like send21 would. 👍 / ↩️ are what the send21 account owner does with a short pay.</p>`,
+      ),
+    );
   });
 
   app.post("/mock/pay/:token/:action", express.urlencoded({ extended: false, limit: "1kb" }), async (req, res) => {
@@ -229,29 +256,49 @@ ${[["seen", "👀 start paying"], ["paid", "✅ pay"], ["short", "⚠️ pay 5% 
       sentAmount: (amountSats / units).toFixed(Math.log10(units)),
       occurredAt: new Date().toISOString(),
     };
-    const action = req.params.action;
-    const body =
-      action === "paid"
-        ? { event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: `mock-${randomUUID()}`, confirmations: 1 } }
-        : action === "seen"
-          ? { event: "draft.seen", data: { ...base, status: "Seen", txId: `mock-${randomUUID()}`, confirmations: 0 } }
-          : action === "short"
-            ? { event: "draft.amount_mismatch", data: { ...base, status: "AwaitingPayment", reviewState: "pending", receivedAmountSats: Math.round(amountSats * 0.95) } }
-            : { event: "payment_request.expired", data: { paymentRequestId: entry.response.id, orderId: entry.body.orderId, opened: true, quoteRequested: false } };
-    const raw = JSON.stringify(body);
-    const deliveryId = randomUUID();
-    const r = await fetch(`${selfUrl}/webhooks/send21`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-send21-event": body.event,
-        "x-send21-delivery": deliveryId,
-        "x-send21-signature-v2": signV2(raw, deliveryId, Math.floor(Date.now() / 1000), secret),
-      },
-      body: raw,
-    });
+    const short = Math.round(amountSats * 0.95);
+    const tx = `mock-${randomUUID()}`;
+    const events: Record<string, { event: string; data: Record<string, unknown> }[]> = {
+      paid: [{ event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: tx, confirmations: 1 } }],
+      seen: [{ event: "draft.seen", data: { ...base, status: "Seen", txId: tx, confirmations: 0 } }],
+      short: [{ event: "draft.amount_mismatch", data: { ...base, status: "AwaitingPayment", reviewState: "pending", receivedAmountSats: short } }],
+      // The owner accepts on send21: draft.mismatch_accepted, then draft.confirmed for the received amount.
+      accept: [
+        { event: "draft.mismatch_accepted", data: { ...base, status: "AwaitingPayment", reviewState: "accepted", acceptReason: "close enough", receivedAmountSats: short } },
+        { event: "draft.confirmed", data: { ...base, status: "Confirmed", txId: tx, confirmations: 1, receivedAmountSats: short } },
+      ],
+      decline: [{ event: "draft.mismatch_rejected", data: { ...base, status: "AwaitingPayment", reviewState: "rejected", rejectReason: "too short", refund: "manual", receivedAmountSats: short } }],
+      expire: [{ event: "payment_request.expired", data: { paymentRequestId: entry.response.id, orderId: entry.body.orderId, opened: true, quoteRequested: false } }],
+    };
+    const list = Object.hasOwn(events, req.params.action) ? events[req.params.action]! : null;
+    if (!list) {
+      res.status(404).send("unknown action");
+      return;
+    }
+    let r: { ok: boolean; status: number } = { ok: false, status: 0 };
+    for (const body of list) {
+      const raw = JSON.stringify(body);
+      const deliveryId = randomUUID();
+      r = await fetch(`${mock.selfUrl}/webhooks/send21`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-send21-event": body.event,
+          "x-send21-delivery": deliveryId,
+          "x-send21-signature-v2": signV2(raw, deliveryId, Math.floor(Date.now() / 1000), secret),
+        },
+        body: raw,
+      });
+      if (!r.ok) break;
+    }
+    const body = { event: list.map((b) => b.event).join(" → ") };
     const billId = /^split-([a-z0-9]{20})-/.exec(entry.body.orderId)?.[1] ?? "";
-    res.type("html").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/mock.css">
-<main class="mock"><h1>${r.ok ? "📨" : "❌"}</h1><p>${esc(r.ok ? body.event : String(r.status))}</p><p><a href="/#/b/${esc(billId)}">👉 board</a> · <a href="/mock/pay/${esc(req.params.token)}">↩️ back</a></p></main>`);
+    res.status(r.ok ? 200 : 502).type("html").send(
+      mockPage(
+        body.event,
+        `<p class="huge">${r.ok ? "📨" : "❌"}</p><h1 class="small">${r.ok ? "webhook sent" : `webhook refused (${r.status})`}</h1><p class="memo"><code>${esc(body.event)}</code></p>
+<a class="btn main" href="/#/b/${esc(billId)}">👉 back to the board</a><a class="btn" href="/mock/pay/${esc(req.params.token)}">↩️ mock pay page</a>`,
+      ),
+    );
   });
 }

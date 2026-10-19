@@ -15,7 +15,7 @@
 
 ## Quickstart
 
-1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000. Mock mode: tap a friend, open the link and simulate 👀 / ✅ / ⚠️ / ⌛.
+1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000. Mock mode fills in sample addresses: type a total, ⚡ make links, tap a friend, 🔗 open and play the payer: ✅ pay, 👀 start paying, ⚠️ pay short then 👍 accept or ↩️ decline, or ⌛ let it expire.
 2. **send21 key.** On [send21.io/api-keys](https://send21.io/api-keys), create a key with `drafts:write` (add `webhooks:manage` for step 4).
 3. **Configure.** `cp .env.example .env` and fill in `SEND21_API_KEY` and `PUBLIC_URL`.
 4. **Webhook.** Put the app behind your own HTTPS address (for example a reverse proxy with a free Let's Encrypt certificate, and `TRUST_PROXY=1`), then run `npm run webhook:register` and paste the printed `SEND21_WEBHOOK_SECRET` into `.env`.
