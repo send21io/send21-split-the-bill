@@ -18,6 +18,7 @@
 1. **Try it now, no key:** `npm install && npm run dev`, then open http://localhost:3000. Mock mode fills in sample addresses: type a total, ⚡ make links, tap a friend, 🔗 open and play the payer: ✅ pay, 👀 start paying, ⚠️ pay short then 👍 accept or ↩️ decline, or ⌛ let it expire.
 2. **send21 key.** On [send21.io/api-keys](https://send21.io/api-keys), create a key with `drafts:write` (add `webhooks:manage` for step 4).
 3. **Configure.** `cp .env.example .env` and fill in `SEND21_API_KEY` and `PUBLIC_URL`.
+   - 🔐 **Approve your receiving addresses in send21.** New send21 accounts (created on or after 20 Oct 2026) only accept receiving addresses the owner approved, including Lightning addresses. Add them in the send21 app, or propose one from an agent (MCP `propose_receiving_address`), then sign in and approve it with a passkey or authenticator code. No API key can approve an address. Older accounts can opt in under Settings.
 4. **Webhook.** Put the app behind your own HTTPS address (for example a reverse proxy with a free Let's Encrypt certificate, and `TRUST_PROXY=1`), then run `npm run webhook:register` and paste the printed `SEND21_WEBHOOK_SECRET` into `.env`.
 5. **Run.** `npm run build && npm start`.
 
@@ -59,6 +60,10 @@ sequenceDiagram
 Payments up to `SPLIT_SHORTFALL_PERCENT` (default 2%) short, such as exchange withdrawal fees, are accepted automatically through send21's `shortfallPolicy`. Other different amounts wait for the owner of the send21 account to accept or decline them on send21.
 
 **Fees.** The app's send21 account pays one small send21 fee per paid share (0.49% on small payments, at least $0.01). You always receive the full share. See [pricing](https://send21.io/pricing).
+
+## Troubleshooting
+
+- **422 `address_not_approved`:** a receiving address isn't approved in your send21 account, so nothing was created. Sign in to send21, approve the address (passkey or authenticator code), then try again.
 
 ## Security notes
 
